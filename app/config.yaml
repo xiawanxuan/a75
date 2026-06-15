@@ -1,0 +1,83 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 8
+  max_concurrent_requests: 1000
+
+database:
+  timescaledb:
+    host: "localhost"
+    port: 5432
+    user: "turbine_user"
+    password: "turbine_pass"
+    database: "turbine_hyper"
+    max_connections: 200
+    min_connections: 10
+    command_timeout: 60000
+  mysql:
+    host: "localhost"
+    port: 3306
+    user: "turbine_user"
+    password: "turbine_pass"
+    database: "turbine_meta"
+    max_connections: 100
+    min_connections: 5
+
+algorithm:
+  order_resampling:
+    interpolation_method: "cubic"
+    resample_points_per_order: 256
+    samples_per_order: 256
+    max_order: 20.0
+    min_order: 0.5
+    anti_aliasing_filter: true
+    filter_order: 8
+    cutoff_ratio: 0.45
+
+  spectral_decomposition:
+    fft_window: "hann"
+    fft_overlap: 0.75
+    overlap_ratio: 0.75
+    fft_nperseg: 4096
+    harmonic_count: 5
+    sideband_range: 5
+    peak_threshold: 0.1
+    peak_prominence: 0.05
+    peak_distance_orders: 0.1
+    noise_floor_percentile: 95
+    snr_threshold_db: 3.0
+    sideband_tolerance: 0.05
+
+  fatigue_damage:
+    sn_curve_slope: 5.0
+    sn_curve_intercept: 1500.0
+    fatigue_limit_stress: 50.0
+    mean_stress_correction: "goodman"
+    ultimate_tensile_strength: 800.0
+    yield_strength: 650.0
+    rainflow_bins: 64
+    damage_threshold: 1e-6
+
+ingestion:
+  max_shard_size_mb: 32
+  max_concurrent_writers: 512
+  batch_size: 1024
+  compression_enabled: true
+  retention_days: 3650
+  backup_failed_data: true
+  backup_directory: "./data/failed_backups"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  log_file: "./logs/app.log"
+  max_file_size_mb: 100
+  backup_count: 10
+
+openapi:
+  title: "燃气电厂机组健康诊断平台 API"
+  version: "1.0.0"
+  description: "叶片高温应变高频振动波形采集与分析系统"
+  contact:
+    name: "系统维护团队"
+    email: "support@turbine-diagnosis.com"
