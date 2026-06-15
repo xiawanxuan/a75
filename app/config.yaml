@@ -67,6 +67,30 @@ ingestion:
   backup_failed_data: true
   backup_directory: "./data/failed_backups"
 
+callback:
+  enabled: false
+  max_concurrent: 10
+  targets:
+    - name: "operation_system_main"
+      url: "http://ops-plant.internal.com/api/v1/alerts/resonance"
+      secret: "ops-callback-secret-2026-change-me"
+      enabled: true
+      timeout: 10
+      retry_max: 3
+      retry_backoff: 2.0
+    - name: "operation_system_backup"
+      url: "http://ops-plant-backup.internal.com/api/v1/alerts/resonance"
+      secret: "ops-callback-secret-backup-2026-change-me"
+      enabled: false
+      timeout: 10
+      retry_max: 3
+      retry_backoff: 2.0
+  thresholds:
+    resonance_amplitude: 50.0
+    min_snr: 3.0
+    damage_value: 0.00001
+    remaining_life_hours: 1000.0
+
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -17,6 +17,7 @@ from app.schemas.schemas import ApiResponse, ResponseStatus
 from app.routers.ingestion_router import router as ingestion_router
 from app.routers.analysis_router import router as analysis_router
 from app.routers.query_router import router as query_router
+from app.routers.callback_router import router as callback_router
 
 
 def _setup_logging():
@@ -87,6 +88,7 @@ app.add_middleware(
 app.include_router(ingestion_router)
 app.include_router(analysis_router)
 app.include_router(query_router)
+app.include_router(callback_router)
 
 
 @app.get("/", tags=["系统"], summary="平台根路径")
@@ -167,6 +169,10 @@ def custom_openapi():
             {
                 "name": "数据查询",
                 "description": "多条件原始波形、阶次结果、损伤特征查询"
+            },
+            {
+                "name": "回调管理",
+                "description": "共振损伤异常HTTP回调推送、记录查询、失败重试、配置管理"
             }
         ]
     )

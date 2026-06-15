@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     WaveformUploadCompleteRequest, WaveformUploadCompleteResponse
 )
 from app.utils.failure_storage import failure_storage
+from app.utils.callback_push import callback_service, ResonanceAlert
 from app.middleware.middleware import ConcurrentRequestLimiter, rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -166,10 +167,71 @@ async def _trigger_analysis_pipeline(
             ]]
         )
 
+        has_exceedance, exceeded = callback_service.detect_resonance_exceedance(
+            decompose_result=decompose_result,
+            fatigue_result=fatigue_result,
+            unit_id=unit_id,
+            blade_id=blade_id
+        )
+
+        if has_exceedance:
+            try:
+                unit_info = await mysql_pool.get_unit_info(unit_id)
+                blade_info_full = await mysql_pool.get_blade_info(blade_id)
+                channel_info = await mysql_pool.get_channel_info(channel_id)
+
+                alert = ResonanceAlert(
+                    unit_id=unit_id,
+                    blade_id=blade_id,
+                    channel_id=channel_id,
+                    analysis_time=datetime.utcnow(),
+                    base_order=float(blade_count),
+                    resonance_orders=list(decompose_result.get("resonance_orders", [])),
+                    resonance_amplitudes=list(decompose_result.get("resonance_amplitudes", [])),
+                    snr=float(decompose_result.get("snr", 0.0)),
+                    rpm_range=list(resample_result.get("rpm_range", [0.0, 0.0])),
+                    avg_rpm=float(rpm),
+                    max_damage=float(fatigue_result.get("damage_value", 0.0)),
+                    damage_accumulated=float(fatigue_result.get("damage_accumulated", 0.0)),
+                    remaining_life_hours=float(fatigue_result.get("remaining_life_hours", 0.0)),
+                    max_stress=float(fatigue_result.get("max_stress", 0.0)),
+                    stress_amplitude=float(fatigue_result.get("stress_amplitude", 0.0)),
+                    cycle_count=int(fatigue_result.get("cycle_count", 0)),
+                    spectral_centroid=float(decompose_result.get("spectral_centroid", 0.0)),
+                    spectral_bandwidth=float(decompose_result.get("spectral_bandwidth", 0.0)),
+                    noise_floor=float(decompose_result.get("noise_floor", 0.0)),
+                    harmonic_orders=list(decompose_result.get("harmonic_orders", [])),
+                    harmonic_amplitudes=list(decompose_result.get("harmonic_amplitudes", [])),
+                    sideband_orders=list(decompose_result.get("sideband_orders", [])),
+                    sideband_amplitudes=list(decompose_result.get("sideband_amplitudes", [])),
+                    threshold_exceeded=exceeded,
+                    blade_number=blade_info.get("blade_number"),
+                    stage=blade_info.get("stage"),
+                    blade_type=blade_info.get("blade_type"),
+                    material=blade_info.get("material"),
+                    unit_name=unit_info.get("unit_name") if unit_info else None,
+                    plant_name=unit_info.get("plant_name") if unit_info else None,
+                    location_mm=channel_info.get("location_mm") if channel_info else None,
+                    angle_deg=channel_info.get("angle_deg") if channel_info else None,
+                )
+
+                await callback_service.push_resonance_alert(alert)
+                logger.info(
+                    f"Resonance alert callback triggered for upload_id={upload_id}, "
+                    f"exceeded_metrics={len(exceeded)}, "
+                    f"damage={fatigue_result['damage_value']:.6f}"
+                )
+            except Exception as callback_error:
+                logger.error(
+                    f"Callback push failed for upload_id={upload_id}: {callback_error}",
+                    exc_info=True
+                )
+
         logger.info(
             f"Analysis pipeline completed for upload_id={upload_id}, "
             f"damage={fatigue_result['damage_value']:.6f}, "
             f"snr={decompose_result['snr']:.2f}dB"
+            f"{', resonance_alert_triggered' if has_exceedance else ''}"
         )
 
     except Exception as e:

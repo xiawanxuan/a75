@@ -39,6 +39,13 @@ class ErrorCode(IntEnum):
     RATE_LIMIT_EXCEEDED = 80001
     CONCURRENT_LIMIT_EXCEEDED = 80002
 
+    CALLBACK_PUSH_FAILED = 85001
+    CALLBACK_EVENT_NOT_FOUND = 85002
+    CALLBACK_TARGET_NOT_FOUND = 85003
+    CALLBACK_PAYLOAD_INVALID = 85004
+    CALLBACK_SIGNATURE_ERROR = 85005
+    CALLBACK_TARGET_DISABLED = 85006
+
     AUTHENTICATION_FAILED = 90001
     PERMISSION_DENIED = 90002
 
@@ -188,6 +195,37 @@ ERROR_MESSAGES: Dict[int, Dict[str, Any]] = {
         "message": "并发请求超限",
         "http_code": 429,
         "retryable": True
+    },
+
+    ErrorCode.CALLBACK_PUSH_FAILED: {
+        "message": "回调推送失败",
+        "http_code": 502,
+        "retryable": True
+    },
+    ErrorCode.CALLBACK_EVENT_NOT_FOUND: {
+        "message": "回调事件不存在",
+        "http_code": 404,
+        "retryable": False
+    },
+    ErrorCode.CALLBACK_TARGET_NOT_FOUND: {
+        "message": "回调目标不存在",
+        "http_code": 404,
+        "retryable": False
+    },
+    ErrorCode.CALLBACK_PAYLOAD_INVALID: {
+        "message": "回调 payload 无效",
+        "http_code": 400,
+        "retryable": False
+    },
+    ErrorCode.CALLBACK_SIGNATURE_ERROR: {
+        "message": "回调签名验证失败",
+        "http_code": 401,
+        "retryable": False
+    },
+    ErrorCode.CALLBACK_TARGET_DISABLED: {
+        "message": "回调目标已禁用",
+        "http_code": 400,
+        "retryable": False
     },
 
     ErrorCode.AUTHENTICATION_FAILED: {

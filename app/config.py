@@ -94,6 +94,20 @@ class OpenAPIConfig(BaseSettings):
     contact: Dict[str, str]
 
 
+class CallbackThresholdConfig(BaseSettings):
+    resonance_amplitude: float = 50.0
+    min_snr: float = 3.0
+    damage_value: float = 1e-5
+    remaining_life_hours: float = 1000.0
+
+
+class CallbackConfig(BaseSettings):
+    enabled: bool = False
+    max_concurrent: int = 10
+    targets: List[Dict[str, Any]] = Field(default_factory=list)
+    thresholds: CallbackThresholdConfig = Field(default_factory=CallbackThresholdConfig)
+
+
 class AppConfig(BaseSettings):
     server: ServerConfig
     timescaledb: TimescaleDBConfig
@@ -102,6 +116,7 @@ class AppConfig(BaseSettings):
     spectral_decomposition: SpectralDecompositionConfig
     fatigue_damage: FatigueDamageConfig
     ingestion: IngestionConfig
+    callback: CallbackConfig
     logging: LoggingConfig
     openapi: OpenAPIConfig
 
@@ -117,6 +132,9 @@ def load_config(config_path: str = None) -> AppConfig:
     with open(config_path, "r", encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
 
+    callback_raw = raw_config.get("callback", {})
+    threshold_raw = callback_raw.get("thresholds", {})
+
     return AppConfig(
         server=ServerConfig(**raw_config["server"]),
         timescaledb=TimescaleDBConfig(**raw_config["database"]["timescaledb"]),
@@ -131,6 +149,12 @@ def load_config(config_path: str = None) -> AppConfig:
             **raw_config["algorithm"]["fatigue_damage"]
         ),
         ingestion=IngestionConfig(**raw_config["ingestion"]),
+        callback=CallbackConfig(
+            enabled=callback_raw.get("enabled", False),
+            max_concurrent=callback_raw.get("max_concurrent", 10),
+            targets=callback_raw.get("targets", []),
+            thresholds=CallbackThresholdConfig(**threshold_raw)
+        ),
         logging=LoggingConfig(**raw_config["logging"]),
         openapi=OpenAPIConfig(**raw_config["openapi"]),
     )

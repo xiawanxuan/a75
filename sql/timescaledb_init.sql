@@ -180,11 +180,64 @@ CREATE INDEX IF NOT EXISTS idx_analysis_failures_unit
 CREATE INDEX IF NOT EXISTS idx_analysis_failures_upload
     ON analysis_failures (upload_id);
 
-CREATE INDEX IF NOT EXISTS idx_analysis_failures_unresolved
-    ON analysis_failures (resolved, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_failures_unit
+    ON analysis_failures (unit_id, created_at DESC);
 
 -- =======================================================
--- 6. 连续聚合视图 - 小时级损伤汇总
+-- 6. HTTP 回调推送记录表
+-- =======================================================
+CREATE TABLE IF NOT EXISTS callback_push_records (
+    record_id           BIGSERIAL PRIMARY KEY,
+    event_id            VARCHAR(64)       NOT NULL,
+    time                TIMESTAMPTZ       NOT NULL,
+    unit_id             VARCHAR(32)       NOT NULL,
+    blade_id            VARCHAR(32)       NOT NULL,
+    channel_id          INTEGER           NOT NULL,
+    target_name         VARCHAR(64)       NOT NULL,
+    target_url          VARCHAR(512)      NOT NULL,
+    success             BOOLEAN           NOT NULL,
+    status_code         INTEGER,
+    response_text       TEXT,
+    error_message       TEXT,
+    retry_count         INTEGER           DEFAULT 0,
+    payload             JSONB,
+    resonance_orders    DOUBLE PRECISION[],
+    resonance_amplitudes DOUBLE PRECISION[],
+    max_damage          DOUBLE PRECISION,
+    avg_rpm             DOUBLE PRECISION,
+    created_at          TIMESTAMPTZ       DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ       DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_callback_push_records_event
+    ON callback_push_records (event_id, target_name);
+
+CREATE INDEX IF NOT EXISTS idx_callback_push_records_unit_time
+    ON callback_push_records (unit_id, time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_callback_push_records_success
+    ON callback_push_records (success, time DESC);
+
+SELECT create_hypertable(
+    'callback_push_records',
+    'time',
+    if_not_exists => TRUE
+);
+
+SELECT add_compression_policy(
+    'callback_push_records',
+    INTERVAL '90 days',
+    if_not_exists => TRUE
+);
+
+SELECT add_retention_policy(
+    'callback_push_records',
+    INTERVAL '365 days',
+    if_not_exists => TRUE
+);
+
+-- =======================================================
+-- 7. 连续聚合视图 - 小时级损伤汇总
 -- =======================================================
 CREATE MATERIALIZED VIEW IF NOT EXISTS fatigue_damage_hourly
 WITH (timescaledb.continuous) AS
@@ -211,7 +264,7 @@ SELECT add_continuous_aggregate_policy(
 );
 
 -- =======================================================
--- 7. 连续聚合视图 - 阶次特征小时级汇总
+-- 8. 连续聚合视图 - 阶次特征小时级汇总
 -- =======================================================
 CREATE MATERIALIZED VIEW IF NOT EXISTS order_spectrum_hourly
 WITH (timescaledb.continuous) AS
@@ -236,7 +289,7 @@ SELECT add_continuous_aggregate_policy(
 );
 
 -- =======================================================
--- 8. 数据压缩策略
+-- 9. 数据压缩策略
 -- =======================================================
 SELECT add_compression_policy(
     'order_spectrum',

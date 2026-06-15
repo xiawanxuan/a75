@@ -19,6 +19,7 @@ from app.schemas.schemas import (
     OrderResamplingResult, OrderSpectrumResult, FatigueDamageResult
 )
 from app.utils.failure_storage import failure_storage
+from app.utils.callback_push import callback_service, ResonanceAlert
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,65 @@ async def _run_analysis_pipeline(
             "analysis_window_seconds": resample_result["analysis_window_seconds"]
         }
 
+        has_exceedance, exceeded = callback_service.detect_resonance_exceedance(
+            decompose_result=decompose_result,
+            fatigue_result=fatigue_result,
+            unit_id=unit_id,
+            blade_id=blade_id
+        )
+
+        callback_results = {}
+        if has_exceedance:
+            unit_info = await mysql_pool.get_unit_info(unit_id)
+            blade_info_full = await mysql_pool.get_blade_info(blade_id)
+            channel_info = await mysql_pool.get_channel_info(channel_id)
+
+            alert = ResonanceAlert(
+                unit_id=unit_id,
+                blade_id=blade_id,
+                channel_id=channel_id,
+                analysis_time=datetime.utcnow(),
+                base_order=float(blade_count),
+                resonance_orders=list(decompose_result.get("resonance_orders", [])),
+                resonance_amplitudes=list(decompose_result.get("resonance_amplitudes", [])),
+                snr=float(decompose_result.get("snr", 0.0)),
+                rpm_range=list(resample_result.get("rpm_range", [0.0, 0.0])),
+                avg_rpm=float(base_rpm),
+                max_damage=float(fatigue_result.get("damage_value", 0.0)),
+                damage_accumulated=float(fatigue_result.get("damage_accumulated", 0.0)),
+                remaining_life_hours=float(fatigue_result.get("remaining_life_hours", 0.0)),
+                max_stress=float(fatigue_result.get("max_stress", 0.0)),
+                stress_amplitude=float(fatigue_result.get("stress_amplitude", 0.0)),
+                cycle_count=int(fatigue_result.get("cycle_count", 0)),
+                spectral_centroid=float(decompose_result.get("spectral_centroid", 0.0)),
+                spectral_bandwidth=float(decompose_result.get("spectral_bandwidth", 0.0)),
+                noise_floor=float(decompose_result.get("noise_floor", 0.0)),
+                harmonic_orders=list(decompose_result.get("harmonic_orders", [])),
+                harmonic_amplitudes=list(decompose_result.get("harmonic_amplitudes", [])),
+                sideband_orders=list(decompose_result.get("sideband_orders", [])),
+                sideband_amplitudes=list(decompose_result.get("sideband_amplitudes", [])),
+                threshold_exceeded=exceeded,
+                blade_number=blade_info_full.get("blade_number") if blade_info_full else None,
+                stage=blade_info_full.get("stage") if blade_info_full else None,
+                blade_type=blade_info_full.get("blade_type") if blade_info_full else None,
+                material=blade_info_full.get("material") if blade_info_full else None,
+                unit_name=unit_info.get("unit_name") if unit_info else None,
+                plant_name=unit_info.get("plant_name") if unit_info else None,
+                location_mm=channel_info.get("location_mm") if channel_info else None,
+                angle_deg=channel_info.get("angle_deg") if channel_info else None,
+            )
+
+            callback_results_raw = await callback_service.push_resonance_alert(alert)
+            callback_results = {
+                name: {
+                    "success": res.success,
+                    "status_code": res.status_code,
+                    "retry_count": res.retry_count,
+                    "error": res.error
+                }
+                for name, res in callback_results_raw.items()
+            }
+
         return {
             "job_id": job_id,
             "unit_id": unit_id,
@@ -141,7 +201,10 @@ async def _run_analysis_pipeline(
             "order_resampling": OrderResamplingResult(**order_resampling_data),
             "spectral_decomposition": OrderSpectrumResult(**decompose_result),
             "fatigue_damage": FatigueDamageResult(**fatigue_result),
-            "analysis_time": datetime.utcnow()
+            "analysis_time": datetime.utcnow(),
+            "resonance_alert_triggered": has_exceedance,
+            "threshold_exceeded": exceeded,
+            "callback_pushed": callback_results
         }
 
     except BusinessException:
