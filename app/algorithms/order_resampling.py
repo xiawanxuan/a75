@@ -84,7 +84,7 @@ class OrderResampler:
         max_order: Optional[float] = None,
         points_per_order: Optional[int] = None,
         method: Optional[str] = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         if len(strain_data) != len(rpm):
             raise BusinessException(
                 ErrorCode.ORDER_RESAMPLING_NO_DATA,
@@ -114,11 +114,26 @@ class OrderResampler:
         angle = self.compute_rotation_angle(rpm, sample_rate)
         angle_normalized = angle / (2.0 * np.pi)
 
-        max_angle_normalized = max_order * base_order
-        order_axis = self._generate_order_axis(max_order, points_per_order)
+        total_revolutions = angle_normalized[-1]
+        if total_revolutions < 1.0:
+            raise BusinessException(
+                ErrorCode.ORDER_RESAMPLING_NO_DATA,
+                f"有效转数不足: {total_revolutions:.2f} 转，至少需要 1 转"
+            )
+
+        samples_per_rev = 2 * max_order * base_order * self.config.cutoff_ratio * 2
+        samples_per_rev = max(int(samples_per_rev), points_per_order)
+        delta_theta = 1.0 / samples_per_rev
+
+        num_angle_samples = int(total_revolutions / delta_theta)
+        if num_angle_samples < 256:
+            num_angle_samples = 256
+            delta_theta = total_revolutions / num_angle_samples
+
+        angle_axis = np.arange(num_angle_samples) * delta_theta
 
         try:
-            valid_mask = (angle_normalized >= 0) & (angle_normalized <= max_angle_normalized)
+            valid_mask = np.ones_like(angle_normalized, dtype=bool)
             if np.sum(valid_mask) < 10:
                 raise BusinessException(
                     ErrorCode.ORDER_RESAMPLING_NO_DATA,
@@ -151,7 +166,7 @@ class OrderResampler:
                     fill_value="extrapolate"
                 )
 
-            order_domain_signal = interp_func(order_axis)
+            order_domain_signal = interp_func(angle_axis)
 
         except Exception as e:
             logger.error(f"阶次重采样插值失败: {e}")
@@ -161,9 +176,11 @@ class OrderResampler:
             )
 
         phase = np.angle(np.fft.fft(order_domain_signal))
-        amplitude = np.abs(np.fft.fft(order_domain_signal))
+        amplitude = np.abs(np.fft.fft(order_domain_signal - np.mean(order_domain_signal)))
 
-        return order_axis, order_domain_signal, phase
+        order_axis_fft = np.fft.fftfreq(len(order_domain_signal), d=delta_theta)
+
+        return angle_axis, order_domain_signal, phase, order_axis_fft, delta_theta
 
     def compute_rpm_profile(
         self,
@@ -269,29 +286,39 @@ class OrderResampler:
         base_order = blade_count
         avg_rpm = np.mean(rpm)
 
-        order_axis, order_signal, phase = self.resample_to_order_domain(
+        angle_axis, order_signal, phase, order_axis_fft, delta_theta = self.resample_to_order_domain(
             strain_data=strain_data,
             rpm=rpm,
             sample_rate=sample_rate,
             base_order=base_order
         )
 
-        amplitude = np.abs(np.fft.fft(order_signal - np.mean(order_signal)))
-        amplitude = amplitude[:len(amplitude) // 2]
-        freq_axis = np.fft.fftfreq(len(order_signal), d=order_axis[1] - order_axis[0])
-        freq_axis = freq_axis[:len(freq_axis) // 2]
+        n = len(order_signal)
+        signal_detrended = order_signal - np.mean(order_signal)
+        fft_full = np.fft.fft(signal_detrended)
+
+        amplitude_full = np.abs(fft_full)
+        positive_mask = order_axis_fft >= 0
+
+        order_axis_positive = order_axis_fft[positive_mask]
+        amplitude_positive = amplitude_full[positive_mask]
+
+        order_values = angle_axis
 
         return {
             "base_order": float(base_order),
-            "order_values": self._to_list(order_axis),
+            "order_values": self._to_list(order_values),
             "order_signal": self._to_list(order_signal),
-            "amplitude_values": self._to_list(amplitude),
+            "amplitude_values": self._to_list(amplitude_positive),
             "phase_values": self._to_list(phase),
             "rpm_range": [float(np.min(rpm)), float(np.max(rpm))],
             "avg_rpm": float(avg_rpm),
             "analysis_window_seconds": float(len(strain_data) / sample_rate),
-            "fft_order_axis": self._to_list(freq_axis),
-            "fft_amplitude": self._to_list(amplitude)
+            "fft_order_axis": self._to_list(order_axis_positive),
+            "fft_amplitude": self._to_list(amplitude_positive),
+            "delta_theta": float(delta_theta),
+            "total_revolutions": float(angle_axis[-1]) if len(angle_axis) > 0 else 0.0,
+            "angle_samples": int(n)
         }
 
     def _to_list(self, arr: np.ndarray) -> List[float]:
